@@ -21,7 +21,6 @@ class RegionVpnService : VpnService() {
         private const val TAG = "MLBBFilter"
         private const val MLBB_PACKAGE = "com.mobile.legends"
 
-        // Локальные адреса VPN-интерфейса.
         private const val VPN_IPV4 = "10.10.0.2"
         private const val VPN_IPV6 = "fd00:1:1::2"
     }
@@ -30,7 +29,6 @@ class RegionVpnService : VpnService() {
     private var vpnInterface: ParcelFileDescriptor? = null
 
     private var workerThread: Thread? = null
-
     private val running = AtomicBoolean(false)
 
     private val countryCodes = mapOf(
@@ -83,47 +81,24 @@ class RegionVpnService : VpnService() {
             val ipv4Ranges = mutableListOf<Pair<String, Int>>()
             val ipv6Ranges = mutableListOf<Pair<String, Int>>()
 
-            /*
-             * Загружаем IPv4 + IPv6 диапазоны выбранных стран.
-             */
             for (country in selectedCountries) {
 
                 if (!running.get()) return
 
                 val code = countryCodes[country] ?: continue
 
-                // -------------------------
-                // IPv4
-                // -------------------------
-
-                val ipv4Url =
-                    "https://www.ipdeny.com/ipblocks/data/countries/$code.zone"
-
-                Log.d(TAG, "Загрузка IPv4: $ipv4Url")
-
                 loadRanges(
-                    urlString = ipv4Url,
-                    ipv4 = true,
-                    target = ipv4Ranges
+                    "https://www.ipdeny.com/ipblocks/data/countries/$code.zone",
+                    true,
+                    ipv4Ranges
                 )
 
-                // -------------------------
-                // IPv6
-                // -------------------------
-
-                val ipv6Url =
-                    "https://www.ipdeny.com/ipv6/ipaddresses/blocks/$code.zone"
-
-                Log.d(TAG, "Загрузка IPv6: $ipv6Url")
-
                 loadRanges(
-                    urlString = ipv6Url,
-                    ipv4 = false,
-                    target = ipv6Ranges
+                    "https://www.ipdeny.com/ipv6/ipaddresses/blocks/$code.zone",
+                    false,
+                    ipv6Ranges
                 )
             }
-
-            if (!running.get()) return
 
             val uniqueIpv4 = ipv4Ranges.distinct()
             val uniqueIpv6 = ipv6Ranges.distinct()
@@ -136,33 +111,23 @@ class RegionVpnService : VpnService() {
 
             Log.i(
                 TAG,
-                "Диапазоны загружены: IPv4=${uniqueIpv4.size}, IPv6=${uniqueIpv6.size}"
+                "Загружено: IPv4=${uniqueIpv4.size}, IPv6=${uniqueIpv6.size}"
             )
 
-            /*
-             * Создаём локальный VPN.
-             *
-             * Важно:
-             * VPN используется только для Mobile Legends.
-             */
             val builder = Builder()
                 .setSession("MLBB IP Blocker")
                 .setMtu(1500)
 
-                // IPv4-адрес VPN
                 .addAddress(VPN_IPV4, 32)
-
-                // IPv6-адрес VPN
                 .addAddress(VPN_IPV6, 64)
 
-                // Только Mobile Legends
+                // VPN применяется только к Mobile Legends
                 .addAllowedApplication(MLBB_PACKAGE)
 
             /*
-             * Добавляем IPv4-маршруты.
-             *
-             * Всё, что относится к выбранной стране,
-             * попадает внутрь VPN и затем блокируется.
+             * Украинские IPv4 сети направляются в VPN.
+             * Пакеты из TUN мы не пересылаем дальше.
+             * Поэтому они блокируются.
              */
             for ((address, prefix) in uniqueIpv4) {
 
@@ -172,9 +137,7 @@ class RegionVpnService : VpnService() {
             }
 
             /*
-             * Добавляем IPv6-маршруты.
-             *
-             * Это главное изменение по сравнению со старой версией.
+             * То же самое для IPv6.
              */
             for ((address, prefix) in uniqueIpv6) {
 
@@ -191,20 +154,19 @@ class RegionVpnService : VpnService() {
             vpnInterface = localInterface
 
             showToast(
-                "Фильтр запущен\nIPv4: ${uniqueIpv4.size}\nIPv6: ${uniqueIpv6.size}"
+                "Блокировка запущена\n" +
+                    "IPv4: ${uniqueIpv4.size}\n" +
+                    "IPv6: ${uniqueIpv6.size}"
             )
 
             Log.i(
                 TAG,
-                "VPN запущен. IPv4=${uniqueIpv4.size}, IPv6=${uniqueIpv6.size}"
+                "HARD BLOCK запущен"
             )
 
             /*
-             * Читаем пакеты, которые Android отправил
-             * в наш VPN-интерфейс.
-             *
-             * Мы их НЕ пересылаем дальше.
-             * Поэтому совпавшие IP фактически блокируются.
+             * Всё, что попало в TUN,
+             * НЕ отправляется обратно в интернет.
              */
             FileInputStream(localInterface.fileDescriptor).use { input ->
 
@@ -217,19 +179,11 @@ class RegionVpnService : VpnService() {
 
                     val length = input.read(buffer)
 
-                    if (length < 1) {
-                        if (length < 0) break
-                        continue
-                    }
+                    if (length < 0) break
+                    if (length == 0) continue
 
                     packetCount++
 
-                    /*
-                     * Первый nibble IP-пакета:
-                     *
-                     * 4 = IPv4
-                     * 6 = IPv6
-                     */
                     val version =
                         (buffer[0].toInt() ushr 4) and 0x0F
 
@@ -284,24 +238,13 @@ class RegionVpnService : VpnService() {
                                 }
                             }
                         }
-
-                        else -> {
-
-                            Log.d(
-                                TAG,
-                                "Неизвестная версия IP: $version"
-                            )
-                        }
                     }
 
-                    /*
-                     * Каждые 1000 пакетов выводим статистику.
-                     */
                     if (packetCount % 1000 == 0) {
 
                         Log.i(
                             TAG,
-                            "VPN packets received: $packetCount"
+                            "Заблокировано пакетов: $packetCount"
                         )
                     }
                 }
@@ -339,17 +282,6 @@ class RegionVpnService : VpnService() {
         }
     }
 
-    /*
-     * Загрузка CIDR-диапазонов IPdeny.
-     *
-     * ipv4 = true:
-     *     принимаем IPv4, например:
-     *     185.1.2.0/24
-     *
-     * ipv4 = false:
-     *     принимаем IPv6, например:
-     *     2a00:xxxx::/32
-     */
     private fun loadRanges(
         urlString: String,
         ipv4: Boolean,
@@ -387,8 +319,10 @@ class RegionVpnService : VpnService() {
                     }
 
                     val address = parts[0].trim()
-                    val prefix = parts[1].trim().toIntOrNull()
-                        ?: return@forEach
+
+                    val prefix =
+                        parts[1].trim().toIntOrNull()
+                            ?: return@forEach
 
                     if (ipv4) {
 
@@ -455,6 +389,4 @@ class RegionVpnService : VpnService() {
 
         stopVpn()
 
-        super.onDestroy()
-    }
-}
+        super
