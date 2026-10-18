@@ -16,31 +16,44 @@ import java.util.concurrent.atomic.AtomicBoolean
 class RegionVpnService : VpnService() {
 
     companion object {
-        const val EXTRA_COUNTRIES = "selected_countries"
 
-        private const val TAG = "MLBBFilter"
-        private const val MLBB_PACKAGE = "com.mobile.legends"
+        const val EXTRA_COUNTRIES =
+            "selected_countries"
 
-        private const val VPN_IPV4 = "10.10.0.2"
-        private const val VPN_IPV6 = "fd00:1:1::2"
+        private const val TAG =
+            "MLBBFilter"
+
+        private const val MLBB_PACKAGE =
+            "com.mobile.legends"
+
+        private const val VPN_IPV4 =
+            "10.10.0.2"
+
+        private const val VPN_IPV6 =
+            "fd00:1:1::2"
     }
 
     @Volatile
-    private var vpnInterface: ParcelFileDescriptor? = null
+    private var vpnInterface:
+        ParcelFileDescriptor? = null
 
-    private var workerThread: Thread? = null
-    private val running = AtomicBoolean(false)
+    private var workerThread:
+        Thread? = null
 
-    private val countryCodes = mapOf(
-        "Украина" to "ua",
-        "Италия" to "it",
-        "Германия" to "de",
-        "Польша" to "pl",
-        "Франция" to "fr",
-        "Нидерланды" to "nl",
-        "Румыния" to "ro",
-        "Турция" to "tr"
-    )
+    private val running =
+        AtomicBoolean(false)
+
+    private val countryCodes =
+        mapOf(
+            "Украина" to "ua",
+            "Италия" to "it",
+            "Германия" to "de",
+            "Польша" to "pl",
+            "Франция" to "fr",
+            "Нидерланды" to "nl",
+            "Румыния" to "ro",
+            "Турция" to "tr"
+        )
 
     override fun onStartCommand(
         intent: Intent?,
@@ -51,20 +64,29 @@ class RegionVpnService : VpnService() {
         stopVpn()
 
         val selectedCountries =
-            intent?.getStringArrayListExtra(EXTRA_COUNTRIES)
-                ?: arrayListOf()
+            intent?.getStringArrayListExtra(
+                EXTRA_COUNTRIES
+            ) ?: arrayListOf()
 
         if (selectedCountries.isEmpty()) {
-            showToast("Сначала выбери страну для блокировки")
+
+            showToast(
+                "Сначала выбери страну для блокировки"
+            )
+
             stopSelf(startId)
+
             return START_NOT_STICKY
         }
 
         running.set(true)
 
         workerThread = Thread {
+
             runVpn(selectedCountries)
+
         }.also {
+
             it.name = "MLBB-IP-Filter"
             it.start()
         }
@@ -72,20 +94,30 @@ class RegionVpnService : VpnService() {
         return START_NOT_STICKY
     }
 
-    private fun runVpn(selectedCountries: List<String>) {
+    private fun runVpn(
+        selectedCountries: List<String>
+    ) {
 
-        var localInterface: ParcelFileDescriptor? = null
+        var localInterface:
+            ParcelFileDescriptor? = null
 
         try {
 
-            val ipv4Ranges = mutableListOf<Pair<String, Int>>()
-            val ipv6Ranges = mutableListOf<Pair<String, Int>>()
+            val ipv4Ranges =
+                mutableListOf<Pair<String, Int>>()
+
+            val ipv6Ranges =
+                mutableListOf<Pair<String, Int>>()
 
             for (country in selectedCountries) {
 
-                if (!running.get()) return
+                if (!running.get()) {
+                    return
+                }
 
-                val code = countryCodes[country] ?: continue
+                val code =
+                    countryCodes[country]
+                        ?: continue
 
                 loadRanges(
                     "https://www.ipdeny.com/ipblocks/data/countries/$code.zone",
@@ -100,10 +132,17 @@ class RegionVpnService : VpnService() {
                 )
             }
 
-            val uniqueIpv4 = ipv4Ranges.distinct()
-            val uniqueIpv6 = ipv6Ranges.distinct()
+            val uniqueIpv4 =
+                ipv4Ranges.distinct()
 
-            if (uniqueIpv4.isEmpty() && uniqueIpv6.isEmpty()) {
+            val uniqueIpv6 =
+                ipv6Ranges.distinct()
+
+            if (
+                uniqueIpv4.isEmpty() &&
+                uniqueIpv6.isEmpty()
+            ) {
+
                 throw IllegalStateException(
                     "Не удалось загрузить IP-диапазоны"
                 )
@@ -114,44 +153,62 @@ class RegionVpnService : VpnService() {
                 "Загружено: IPv4=${uniqueIpv4.size}, IPv6=${uniqueIpv6.size}"
             )
 
-            val builder = Builder()
-                .setSession("MLBB IP Blocker")
-                .setMtu(1500)
+            val builder =
+                Builder()
+                    .setSession(
+                        "MLBB IP Blocker"
+                    )
+                    .setMtu(1500)
+                    .addAddress(
+                        VPN_IPV4,
+                        32
+                    )
+                    .addAddress(
+                        VPN_IPV6,
+                        64
+                    )
+                    .addAllowedApplication(
+                        MLBB_PACKAGE
+                    )
 
-                .addAddress(VPN_IPV4, 32)
-                .addAddress(VPN_IPV6, 64)
+            for (
+                (address, prefix)
+                in uniqueIpv4
+            ) {
 
-                // VPN применяется только к Mobile Legends
-                .addAllowedApplication(MLBB_PACKAGE)
+                if (!running.get()) {
+                    return
+                }
 
-            /*
-             * Украинские IPv4 сети направляются в VPN.
-             * Пакеты из TUN мы не пересылаем дальше.
-             * Поэтому они блокируются.
-             */
-            for ((address, prefix) in uniqueIpv4) {
-
-                if (!running.get()) return
-
-                builder.addRoute(address, prefix)
-            }
-
-            /*
-             * То же самое для IPv6.
-             */
-            for ((address, prefix) in uniqueIpv6) {
-
-                if (!running.get()) return
-
-                builder.addRoute(address, prefix)
-            }
-
-            localInterface = builder.establish()
-                ?: throw IllegalStateException(
-                    "Android не создал VPN-интерфейс"
+                builder.addRoute(
+                    address,
+                    prefix
                 )
+            }
 
-            vpnInterface = localInterface
+            for (
+                (address, prefix)
+                in uniqueIpv6
+            ) {
+
+                if (!running.get()) {
+                    return
+                }
+
+                builder.addRoute(
+                    address,
+                    prefix
+                )
+            }
+
+            localInterface =
+                builder.establish()
+                    ?: throw IllegalStateException(
+                        "Android не создал VPN-интерфейс"
+                    )
+
+            vpnInterface =
+                localInterface
 
             showToast(
                 "Блокировка запущена\n" +
@@ -164,28 +221,38 @@ class RegionVpnService : VpnService() {
                 "HARD BLOCK запущен"
             )
 
-            /*
-             * Всё, что попало в TUN,
-             * НЕ отправляется обратно в интернет.
-             */
-            FileInputStream(localInterface.fileDescriptor).use { input ->
+            FileInputStream(
+                localInterface.fileDescriptor
+            ).use { input ->
 
-                val buffer = ByteArray(32767)
+                val buffer =
+                    ByteArray(32767)
 
                 var packetCount = 0
-                val loggedDestinations = mutableSetOf<String>()
+
+                val loggedDestinations =
+                    mutableSetOf<String>()
 
                 while (running.get()) {
 
-                    val length = input.read(buffer)
+                    val length =
+                        input.read(buffer)
 
-                    if (length < 0) break
-                    if (length == 0) continue
+                    if (length < 0) {
+                        break
+                    }
+
+                    if (length == 0) {
+                        continue
+                    }
 
                     packetCount++
 
                     val version =
-                        (buffer[0].toInt() ushr 4) and 0x0F
+                        (
+                            buffer[0].toInt()
+                                ushr 4
+                        ) and 0x0F
 
                     when (version) {
 
@@ -194,15 +261,22 @@ class RegionVpnService : VpnService() {
                             if (length >= 20) {
 
                                 val destinationBytes =
-                                    buffer.copyOfRange(16, 20)
+                                    buffer.copyOfRange(
+                                        16,
+                                        20
+                                    )
 
                                 val destination =
                                     InetAddress
-                                        .getByAddress(destinationBytes)
+                                        .getByAddress(
+                                            destinationBytes
+                                        )
                                         .hostAddress
 
                                 if (
-                                    loggedDestinations.add(destination) &&
+                                    loggedDestinations.add(
+                                        destination
+                                    ) &&
                                     loggedDestinations.size <= 100
                                 ) {
 
@@ -219,15 +293,22 @@ class RegionVpnService : VpnService() {
                             if (length >= 40) {
 
                                 val destinationBytes =
-                                    buffer.copyOfRange(24, 40)
+                                    buffer.copyOfRange(
+                                        24,
+                                        40
+                                    )
 
                                 val destination =
                                     InetAddress
-                                        .getByAddress(destinationBytes)
+                                        .getByAddress(
+                                            destinationBytes
+                                        )
                                         .hostAddress
 
                                 if (
-                                    loggedDestinations.add(destination) &&
+                                    loggedDestinations.add(
+                                        destination
+                                    ) &&
                                     loggedDestinations.size <= 100
                                 ) {
 
@@ -240,7 +321,9 @@ class RegionVpnService : VpnService() {
                         }
                     }
 
-                    if (packetCount % 1000 == 0) {
+                    if (
+                        packetCount % 1000 == 0
+                    ) {
 
                         Log.i(
                             TAG,
@@ -261,7 +344,10 @@ class RegionVpnService : VpnService() {
                 )
 
                 showToast(
-                    "Ошибка фильтра: ${e.message ?: "неизвестная"}"
+                    "Ошибка фильтра: ${
+                        e.message
+                            ?: "неизвестная"
+                    }"
                 )
             }
 
@@ -274,7 +360,9 @@ class RegionVpnService : VpnService() {
             } catch (_: Exception) {
             }
 
-            if (vpnInterface === localInterface) {
+            if (
+                vpnInterface === localInterface
+            ) {
                 vpnInterface = null
             }
 
@@ -285,72 +373,89 @@ class RegionVpnService : VpnService() {
     private fun loadRanges(
         urlString: String,
         ipv4: Boolean,
-        target: MutableList<Pair<String, Int>>
+        target:
+            MutableList<Pair<String, Int>>
     ) {
 
         val connection =
-            URL(urlString).openConnection() as HttpURLConnection
+            URL(urlString)
+                .openConnection()
+                as HttpURLConnection
 
-        connection.connectTimeout = 15000
-        connection.readTimeout = 20000
-        connection.requestMethod = "GET"
+        connection.connectTimeout =
+            15000
+
+        connection.readTimeout =
+            20000
+
+        connection.requestMethod =
+            "GET"
 
         try {
 
-            connection.inputStream.bufferedReader().useLines { lines ->
+            connection.inputStream
+                .bufferedReader()
+                .useLines { lines ->
 
-                lines.forEach { rawLine ->
+                    lines.forEach { rawLine ->
 
-                    if (!running.get()) return@useLines
-
-                    val line = rawLine.trim()
-
-                    if (
-                        line.isEmpty() ||
-                        line.startsWith("#")
-                    ) {
-                        return@forEach
-                    }
-
-                    val parts = line.split("/")
-
-                    if (parts.size != 2) {
-                        return@forEach
-                    }
-
-                    val address = parts[0].trim()
-
-                    val prefix =
-                        parts[1].trim().toIntOrNull()
-                            ?: return@forEach
-
-                    if (ipv4) {
-
-                        if (
-                            prefix in 0..32 &&
-                            address.contains(".") &&
-                            !address.contains(":")
-                        ) {
-
-                            target.add(
-                                address to prefix
-                            )
+                        if (!running.get()) {
+                            return@useLines
                         }
 
-                    } else {
+                        val line =
+                            rawLine.trim()
 
                         if (
-                            prefix in 0..128 &&
-                            address.contains(":")
+                            line.isEmpty() ||
+                            line.startsWith("#")
                         ) {
+                            return@forEach
+                        }
 
-                            target.add(
-                                address to prefix
-                            )
+                        val parts =
+                            line.split("/")
+
+                        if (parts.size != 2) {
+                            return@forEach
+                        }
+
+                        val address =
+                            parts[0].trim()
+
+                        val prefix =
+                            parts[1]
+                                .trim()
+                                .toIntOrNull()
+                                ?: return@forEach
+
+                        if (ipv4) {
+
+                            if (
+                                prefix in 0..32 &&
+                                address.contains(".") &&
+                                !address.contains(":")
+                            ) {
+
+                                target.add(
+                                    address to prefix
+                                )
+                            }
+
+                        } else {
+
+                            if (
+                                prefix in 0..128 &&
+                                address.contains(":")
+                            ) {
+
+                                target.add(
+                                    address to prefix
+                                )
+                            }
                         }
                     }
                 }
-            }
 
         } finally {
 
@@ -358,9 +463,13 @@ class RegionVpnService : VpnService() {
         }
     }
 
-    private fun showToast(message: String) {
+    private fun showToast(
+        message: String
+    ) {
 
-        Handler(Looper.getMainLooper()).post {
+        Handler(
+            Looper.getMainLooper()
+        ).post {
 
             Toast.makeText(
                 applicationContext,
@@ -375,6 +484,7 @@ class RegionVpnService : VpnService() {
         running.set(false)
 
         workerThread?.interrupt()
+
         workerThread = null
 
         try {
@@ -389,4 +499,6 @@ class RegionVpnService : VpnService() {
 
         stopVpn()
 
-        super
+        super.onDestroy()
+    }
+}
