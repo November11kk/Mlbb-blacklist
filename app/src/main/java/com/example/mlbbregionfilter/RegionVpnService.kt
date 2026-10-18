@@ -74,4 +74,123 @@ class RegionVpnService : VpnService() {
             val ranges = mutableListOf<Pair<String, Int>>()
 
             for (country in selectedCountries) {
-                if (!running
+                if (!running.get()) return
+
+                val code = countryCodes[country] ?: continue
+                val url = URL(
+                    "https://www.ipdeny.com/ipblocks/data/countries/$code.zone"
+                )
+
+                val connection =
+                    url.openConnection() as HttpURLConnection
+
+                connection.connectTimeout = 15000
+                connection.readTimeout = 20000
+                connection.requestMethod = "GET"
+
+                try {
+                    connection.inputStream.bufferedReader().useLines { lines ->
+                        lines.forEach { line ->
+                            val parts = line.trim().split("/")
+                            if (parts.size == 2) {
+                                val prefix = parts[1].toIntOrNull()
+                                if (
+                                    prefix != null &&
+                                    prefix in 0..32 &&
+                                    parts[0].contains(".")
+                                ) {
+                                    ranges.add(parts[0] to prefix)
+                                }
+                            }
+                        }
+                    }
+                } finally {
+                    connection.disconnect()
+                }
+            }
+
+            if (!running.get()) return
+
+            if (ranges.isEmpty()) {
+                throw IllegalStateException(
+                    "Не удалось загрузить IP-диапазоны"
+                )
+            }
+
+            val builder = Builder()
+                .setSession("MLBB IP Blocker")
+                .setMtu(1500)
+                .addAddress(VPN_ADDRESS, 32)
+                .addAllowedApplication(MLBB_PACKAGE)
+
+            for ((address, prefix) in ranges.distinct()) {
+                if (!running.get()) return
+                builder.addRoute(address, prefix)
+            }
+
+            localInterface = builder.establish()
+                ?: throw IllegalStateException(
+                    "Android не создал VPN-интерфейс"
+                )
+
+            vpnInterface = localInterface
+
+            showToast(
+                "Фильтр запущен. Диапазонов: ${ranges.distinct().size}"
+            )
+
+            /*
+             * В VPN попадают только выбранные IP-диапазоны.
+             * Полученные пакеты отбрасываются.
+             * Остальные IPv4-адреса не маршрутизируются в этот VPN.
+             */
+            FileInputStream(localInterface.fileDescriptor).use { input ->
+                val buffer = ByteArray(32767)
+
+                while (running.get()) {
+                    val length = input.read(buffer)
+                    if (length < 0) break
+                }
+            }
+        } catch (e: Exception) {
+            if (running.get()) {
+                Log.e("MLBBFilter", "Ошибка VPN-фильтра", e)
+                showToast("Ошибка фильтра: ${e.message ?: "неизвестная"}")
+            }
+        } finally {
+            running.set(false)
+            localInterface?.close()
+
+            if (vpnInterface === localInterface) {
+                vpnInterface = null
+            }
+
+            stopSelf()
+        }
+    }
+
+    private fun showToast(message: String) {
+        Handler(Looper.getMainLooper()).post {
+            Toast.makeText(
+                applicationContext,
+                message,
+                Toast.LENGTH_LONG
+            ).show()
+        }
+    }
+
+    private fun stopVpn() {
+        running.set(false)
+
+        workerThread?.interrupt()
+        workerThread = null
+
+        vpnInterface?.close()
+        vpnInterface = null
+    }
+
+    override fun onDestroy() {
+        stopVpn()
+        super.onDestroy()
+    }
+}
