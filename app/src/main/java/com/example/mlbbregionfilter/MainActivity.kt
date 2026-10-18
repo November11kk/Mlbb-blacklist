@@ -42,7 +42,6 @@ class MainActivity : AppCompatActivity() {
             )
         }
 
-        // Заголовок
         val title = TextView(this).apply {
             text = "MLBB Region Filter"
             textSize = 25f
@@ -50,15 +49,8 @@ class MainActivity : AppCompatActivity() {
             setPadding(0, 0, 0, dp(10))
         }
 
-        layout.addView(
-            title,
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            )
-        )
+        layout.addView(title)
 
-        // Описание
         val description = TextView(this).apply {
             text = """
                 Фильтр IP-трафика Mobile Legends.
@@ -78,15 +70,8 @@ class MainActivity : AppCompatActivity() {
             setPadding(0, 0, 0, dp(18))
         }
 
-        layout.addView(
-            description,
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            )
-        )
+        layout.addView(description)
 
-        // Заголовок выбора стран
         val countryTitle = TextView(this).apply {
             text = "Страны для блокировки"
             textSize = 18f
@@ -94,39 +79,29 @@ class MainActivity : AppCompatActivity() {
             setPadding(0, 0, 0, dp(8))
         }
 
-        layout.addView(
-            countryTitle,
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            )
-        )
+        layout.addView(countryTitle)
 
-        // Украина
         ukraineCheckBox = CheckBox(this).apply {
             text = "Украина — IPv4 + IPv6"
             textSize = 16f
             setTextColor(Color.WHITE)
             isChecked = true
-            setPadding(0, dp(4), 0, dp(14))
+            setPadding(
+                0,
+                dp(4),
+                0,
+                dp(14)
+            )
         }
 
-        layout.addView(
-            ukraineCheckBox,
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            )
-        )
+        layout.addView(ukraineCheckBox)
 
-        // Кнопка запуска
         val startButton = Button(this).apply {
             text = "Заблокировать выбранные страны"
             textSize = 16f
             minHeight = dp(52)
 
             setOnClickListener {
-
                 val selected = arrayListOf<String>()
 
                 if (ukraineCheckBox.isChecked) {
@@ -147,14 +122,11 @@ class MainActivity : AppCompatActivity() {
                     VpnService.prepare(this@MainActivity)
 
                 if (prepareIntent != null) {
-
                     startActivityForResult(
                         prepareIntent,
                         vpnRequestCode
                     )
-
                 } else {
-
                     startFilter(selected)
                 }
             }
@@ -170,14 +142,12 @@ class MainActivity : AppCompatActivity() {
             }
         )
 
-        // Кнопка остановки
         val stopButton = Button(this).apply {
             text = "Остановить блокировку"
             textSize = 16f
             minHeight = dp(52)
 
             setOnClickListener {
-
                 stopService(
                     Intent(
                         this@MainActivity,
@@ -196,4 +166,79 @@ class MainActivity : AppCompatActivity() {
         layout.addView(
             stopButton,
             LinearLayout.LayoutParams(
-                ViewGroup.Layout
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        )
+
+        scrollView.addView(
+            layout,
+            ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        )
+
+        setContentView(scrollView)
+    }
+
+    @Deprecated("Используется для совместимости")
+    override fun onActivityResult(
+        requestCode: Int,
+        resultCode: Int,
+        data: Intent?
+    ) {
+        super.onActivityResult(
+            requestCode,
+            resultCode,
+            data
+        )
+
+        if (requestCode != vpnRequestCode) {
+            return
+        }
+
+        if (resultCode == Activity.RESULT_OK) {
+
+            val selected = arrayListOf<String>()
+
+            if (ukraineCheckBox.isChecked) {
+                selected.add("Украина")
+            }
+
+            if (selected.isNotEmpty()) {
+                startFilter(selected)
+            } else {
+                Toast.makeText(
+                    this,
+                    "Выбери хотя бы одну страну",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+
+        } else {
+
+            Toast.makeText(
+                this,
+                "Разрешение VPN не предоставлено",
+                Toast.LENGTH_LONG
+            ).show()
+        }
+    }
+
+    private fun startFilter(
+        selected: ArrayList<String>
+    ) {
+        val intent = Intent(
+            this,
+            RegionVpnService::class.java
+        )
+
+        intent.putStringArrayListExtra(
+            RegionVpnService.EXTRA_COUNTRIES,
+            selected
+        )
+
+        startService(intent)
+    }
+}
