@@ -4,13 +4,14 @@ import android.content.Intent
 import android.net.VpnService
 import android.os.ParcelFileDescriptor
 import java.io.FileInputStream
-import java.io.FileOutputStream
 import java.util.concurrent.atomic.AtomicBoolean
 
 class RegionVpnService : VpnService() {
 
     companion object {
         const val EXTRA_COUNTRIES = "selected_countries"
+
+        private const val MLBB_PACKAGE = "com.mobile.legends"
 
         private const val VPN_ADDRESS = "10.10.0.2"
         private const val VPN_PREFIX = 32
@@ -40,7 +41,9 @@ class RegionVpnService : VpnService() {
         return START_STICKY
     }
 
-    private fun startVpn(selectedCountries: List<String>) {
+    private fun startVpn(
+        selectedCountries: List<String>
+    ) {
 
         val builder = Builder()
 
@@ -48,30 +51,31 @@ class RegionVpnService : VpnService() {
 
         builder.setMtu(VPN_MTU)
 
+        /*
+         * Только Mobile Legends использует этот VPN.
+         *
+         * Остальные приложения телефона VPN не используют.
+         */
+        try {
+            builder.addAllowedApplication(MLBB_PACKAGE)
+        } catch (_: Exception) {
+            stopSelf()
+            return
+        }
+
         builder.addAddress(
             VPN_ADDRESS,
             VPN_PREFIX
         )
 
         /*
-         * Весь IPv4-трафик направляется в TUN.
-         *
-         * На следующем уровне мы будем пропускать
-         * только трафик Mobile Legends и фильтровать
-         * destination IP по выбранным странам.
+         * Весь IPv4-трафик Mobile Legends
+         * направляется в VPN-интерфейс.
          */
         builder.addRoute(
             "0.0.0.0",
             0
         )
-
-        /*
-         * Пока разрешаем приложению создать VPN.
-         *
-         * Привязку непосредственно к пакету MLBB
-         * добавим следующим этапом, когда определим
-         * точный applicationId игры.
-         */
 
         vpnInterface = builder.establish()
 
@@ -91,9 +95,6 @@ class RegionVpnService : VpnService() {
                 val input =
                     FileInputStream(vpn.fileDescriptor)
 
-                val output =
-                    FileOutputStream(vpn.fileDescriptor)
-
                 val buffer = ByteArray(32767)
 
                 while (running.get()) {
@@ -105,59 +106,29 @@ class RegionVpnService : VpnService() {
                     }
 
                     /*
-                     * Здесь находится TUN-пакет.
+                     * Здесь мы получаем IP-пакет Mobile Legends.
                      *
-                     * Структура:
+                     * Следующий этап:
                      *
-                     * IPv4 header
-                     * UDP/TCP header
-                     * payload
-                     *
-                     * В следующей версии здесь будет:
-                     *
-                     * 1. Определение destination IP.
-                     * 2. Определение TCP/UDP.
-                     * 3. Проверка страны IP.
-                     * 4. ALLOW или DROP.
-                     * 5. Реальная пересылка разрешённого пакета.
+                     * 1. Определяем destination IP.
+                     * 2. Определяем UDP/TCP.
+                     * 3. Сверяем IP со странами.
+                     * 4. Разрешаем или блокируем пакет.
+                     * 5. Передаём разрешённый трафик
+                     *    через сетевой движок.
                      */
-
-                    processPacket(
-                        buffer,
-                        length,
-                        output
-                    )
                 }
 
                 input.close()
-                output.close()
 
             } catch (_: Exception) {
-                /*
-                 * VPN был остановлен.
-                 */
+                // VPN остановлен.
             }
 
         }.also {
             it.name = "MLBB-VPN-Worker"
             it.start()
         }
-    }
-
-    private fun processPacket(
-        packet: ByteArray,
-        length: Int,
-        output: FileOutputStream
-    ) {
-
-        /*
-         * Пока ничего не отправляем обратно.
-         *
-         * Это специально.
-         *
-         * Мы сначала добавим настоящий network forwarding,
-         * чтобы случайно не сломать интернет телефона.
-         */
     }
 
     private fun stopVpn() {
