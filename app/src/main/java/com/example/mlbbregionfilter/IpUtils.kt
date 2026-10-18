@@ -21,7 +21,7 @@ object IpUtils {
     ): Long {
 
         if (packet.size < offset + 4) {
-            return 0
+            return 0L
         }
 
         return ipv4ToLong(
@@ -43,7 +43,6 @@ object IpUtils {
             return false
         }
 
-        val address = parts[0]
         val prefix = parts[1].toIntOrNull()
             ?: return false
 
@@ -51,17 +50,35 @@ object IpUtils {
             return false
         }
 
-        val addressParts = address.split(".")
+        val addressParts = parts[0].split(".")
 
         if (addressParts.size != 4) {
             return false
         }
 
+        val b0 = addressParts[0].toIntOrNull()
+        val b1 = addressParts[1].toIntOrNull()
+        val b2 = addressParts[2].toIntOrNull()
+        val b3 = addressParts[3].toIntOrNull()
+
+        if (b0 == null || b1 == null || b2 == null || b3 == null) {
+            return false
+        }
+
+        if (
+            b0 !in 0..255 ||
+            b1 !in 0..255 ||
+            b2 !in 0..255 ||
+            b3 !in 0..255
+        ) {
+            return false
+        }
+
         val network = ipv4ToLong(
-            addressParts[0].toIntOrNull() ?: return 0,
-            addressParts[1].toIntOrNull() ?: return 0,
-            addressParts[2].toIntOrNull() ?: return 0,
-            addressParts[3].toIntOrNull() ?: return 0
+            b0,
+            b1,
+            b2,
+            b3
         )
 
         if (prefix == 0) {
