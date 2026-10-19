@@ -29,7 +29,65 @@ class RegionVpnService : VpnService() {
 
         private const val VPN_IPV6 = "fd00:1:1::2"
 
-        private const val TEST_SERVER_IP = "163.171.137.89"
+        /*
+         * ВСЕ IP, которые ранее фигурировали
+         * в анализах PCAP/MLBB.
+         *
+         * Каждый одиночный IP блокируется как /32.
+         */
+
+        private val PCAP_IPS = listOf(
+
+            // Основной игровой сервер из PCAP
+            "163.171.137.89",
+
+            // Другие соединения из PCAP
+            "104.166.152.2",
+            "161.202.222.9",
+            "154.85.91.19",
+            "23.64.12.171",
+
+            // Ранее обнаруженные MLBB IP
+            "107.155.47.0"
+        )
+
+        /*
+         * Сети, которые ранее фигурировали
+         * при исследовании MLBB.
+         *
+         * Они добавляются как маршруты целиком.
+         */
+
+        private val MLBB_NETWORKS = listOf(
+
+            "103.157.33.0/24",
+
+            "216.133.157.0/24",
+
+            "23.248.170.0/24",
+
+            "23.248.163.0/24",
+
+            "202.52.240.0/21",
+
+            "156.59.0.0/16",
+
+            "47.236.0.0/16",
+
+            "161.117.0.0/16",
+
+            "103.157.32.0/24",
+
+            "101.255.0.0/16",
+
+            "103.111.144.0/23",
+
+            "45.121.218.0/23",
+
+            "129.227.0.0/16",
+
+            "161.202.0.0/16"
+        )
     }
 
     @Volatile
@@ -56,7 +114,10 @@ class RegionVpnService : VpnService() {
         startId: Int
     ): Int {
 
-        // Отдельная команда остановки VPN
+        /*
+         * Отдельная команда остановки VPN.
+         */
+
         if (intent?.action == ACTION_STOP) {
 
             stopVpn()
@@ -66,8 +127,11 @@ class RegionVpnService : VpnService() {
             return START_NOT_STICKY
         }
 
-        // Если уже был запущен VPN —
-        // сначала останавливаем старый экземпляр.
+        /*
+         * Если VPN уже работал —
+         * сначала полностью останавливаем старый экземпляр.
+         */
+
         stopVpn()
 
         val selectedCountries =
@@ -115,6 +179,10 @@ class RegionVpnService : VpnService() {
             val ipv6Ranges =
                 mutableListOf<Pair<String, Int>>()
 
+            /*
+             * Загружаем IP-диапазоны выбранных стран.
+             */
+
             for (country in selectedCountries) {
 
                 if (!running.get()) {
@@ -159,6 +227,10 @@ class RegionVpnService : VpnService() {
                 "Загружено: IPv4=${uniqueIpv4.size}, IPv6=${uniqueIpv6.size}"
             )
 
+            /*
+             * Создаём VPN.
+             */
+
             val builder =
                 Builder()
                     .setSession(
@@ -177,7 +249,12 @@ class RegionVpnService : VpnService() {
                         MLBB_PACKAGE
                     )
 
-            // Блокировка IPv4 выбранных стран
+            /*
+             * =========================================================
+             * 1. БЛОКИРОВКА IP ВЫБРАННЫХ СТРАН
+             * =========================================================
+             */
+
             for (
                 (address, prefix)
                 in uniqueIpv4
@@ -193,7 +270,10 @@ class RegionVpnService : VpnService() {
                 )
             }
 
-            // Блокировка IPv6 выбранных стран
+            /*
+             * IPv6 выбранных стран.
+             */
+
             for (
                 (address, prefix)
                 in uniqueIpv6
@@ -209,16 +289,91 @@ class RegionVpnService : VpnService() {
                 )
             }
 
-            // Тестовая блокировка IP из PCAP
-            builder.addRoute(
-                TEST_SERVER_IP,
-                32
-            )
+            /*
+             * =========================================================
+             * 2. БЛОКИРОВКА ВСЕХ ОТДЕЛЬНЫХ IP ИЗ PCAP
+             * =========================================================
+             */
 
-            Log.i(
-                TAG,
-                "TEST BLOCK -> $TEST_SERVER_IP/32"
-            )
+            for (ip in PCAP_IPS) {
+
+                if (!running.get()) {
+                    return
+                }
+
+                try {
+
+                    builder.addRoute(
+                        ip,
+                        32
+                    )
+
+                    Log.i(
+                        TAG,
+                        "PCAP BLOCK -> $ip/32"
+                    )
+
+                } catch (e: Exception) {
+
+                    Log.e(
+                        TAG,
+                        "Не удалось добавить PCAP IP: $ip",
+                        e
+                    )
+                }
+            }
+
+            /*
+             * =========================================================
+             * 3. БЛОКИРОВКА РАНЕЕ НАЙДЕННЫХ MLBB СЕТЕЙ
+             * =========================================================
+             */
+
+            for (network in MLBB_NETWORKS) {
+
+                if (!running.get()) {
+                    return
+                }
+
+                val parts =
+                    network.split("/")
+
+                if (parts.size != 2) {
+                    continue
+                }
+
+                val address =
+                    parts[0]
+
+                val prefix =
+                    parts[1].toIntOrNull()
+                        ?: continue
+
+                try {
+
+                    builder.addRoute(
+                        address,
+                        prefix
+                    )
+
+                    Log.i(
+                        TAG,
+                        "MLBB NETWORK BLOCK -> $network"
+                    )
+
+                } catch (e: Exception) {
+
+                    Log.e(
+                        TAG,
+                        "Не удалось добавить сеть: $network",
+                        e
+                    )
+                }
+            }
+
+            /*
+             * Создаём VPN-интерфейс.
+             */
 
             localInterface =
                 builder.establish()
@@ -230,15 +385,28 @@ class RegionVpnService : VpnService() {
 
             showToast(
                 "Блокировка запущена\n" +
-                    "IPv4: ${uniqueIpv4.size}\n" +
-                    "IPv6: ${uniqueIpv6.size}\n" +
-                    "TEST: $TEST_SERVER_IP"
+                    "Стран: ${selectedCountries.size}\n" +
+                    "PCAP IP: ${PCAP_IPS.size}\n" +
+                    "MLBB сетей: ${MLBB_NETWORKS.size}"
             )
 
             Log.i(
                 TAG,
                 "HARD BLOCK запущен"
             )
+
+            /*
+             * =========================================================
+             * ЧИТАЕМ ПАКЕТЫ ИЗ TUN
+             * =========================================================
+             *
+             * Пакеты сюда попадают потому, что для соответствующих
+             * адресов выше были созданы VPN routes.
+             *
+             * Мы их НЕ пересылаем дальше.
+             *
+             * То есть это настоящий blackhole для этих маршрутов.
+             */
 
             FileInputStream(
                 localInterface.fileDescriptor
@@ -267,6 +435,10 @@ class RegionVpnService : VpnService() {
 
                     packetCount++
 
+                    /*
+                     * Определяем IP-версию.
+                     */
+
                     val version =
                         (
                             buffer[0].toInt()
@@ -274,6 +446,10 @@ class RegionVpnService : VpnService() {
                         ) and 0x0F
 
                     when (version) {
+
+                        /*
+                         * IPv4
+                         */
 
                         4 -> {
 
@@ -296,7 +472,7 @@ class RegionVpnService : VpnService() {
                                     loggedDestinations.add(
                                         destination
                                     ) &&
-                                    loggedDestinations.size <= 100
+                                    loggedDestinations.size <= 200
                                 ) {
 
                                     Log.d(
@@ -306,6 +482,10 @@ class RegionVpnService : VpnService() {
                                 }
                             }
                         }
+
+                        /*
+                         * IPv6
+                         */
 
                         6 -> {
 
@@ -328,7 +508,7 @@ class RegionVpnService : VpnService() {
                                     loggedDestinations.add(
                                         destination
                                     ) &&
-                                    loggedDestinations.size <= 100
+                                    loggedDestinations.size <= 200
                                 ) {
 
                                     Log.d(
@@ -372,11 +552,14 @@ class RegionVpnService : VpnService() {
             running.set(false)
 
             try {
+
                 localInterface?.close()
+
             } catch (_: Exception) {
             }
 
             if (vpnInterface === localInterface) {
+
                 vpnInterface = null
             }
 
@@ -394,11 +577,14 @@ class RegionVpnService : VpnService() {
             URL(urlString)
                 .openConnection() as HttpURLConnection
 
-        connection.connectTimeout = 15000
+        connection.connectTimeout =
+            15000
 
-        connection.readTimeout = 20000
+        connection.readTimeout =
+            20000
 
-        connection.requestMethod = "GET"
+        connection.requestMethod =
+            "GET"
 
         try {
 
@@ -497,7 +683,9 @@ class RegionVpnService : VpnService() {
         workerThread = null
 
         try {
+
             vpnInterface?.close()
+
         } catch (_: Exception) {
         }
 
