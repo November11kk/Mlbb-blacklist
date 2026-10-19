@@ -16,10 +16,17 @@ import java.util.concurrent.atomic.AtomicBoolean
 class RegionVpnService : VpnService() {
 
     companion object {
+
         const val EXTRA_COUNTRIES = "selected_countries"
+
+        const val ACTION_STOP = "stop_vpn"
+
         private const val TAG = "MLBBFilter"
+
         private const val MLBB_PACKAGE = "com.mobile.legends"
+
         private const val VPN_IPV4 = "10.10.0.2"
+
         private const val VPN_IPV6 = "fd00:1:1::2"
 
         private const val TEST_SERVER_IP = "163.171.137.89"
@@ -49,6 +56,18 @@ class RegionVpnService : VpnService() {
         startId: Int
     ): Int {
 
+        // Отдельная команда остановки VPN
+        if (intent?.action == ACTION_STOP) {
+
+            stopVpn()
+
+            stopSelf(startId)
+
+            return START_NOT_STICKY
+        }
+
+        // Если уже был запущен VPN —
+        // сначала останавливаем старый экземпляр.
         stopVpn()
 
         val selectedCountries =
@@ -56,24 +75,35 @@ class RegionVpnService : VpnService() {
                 ?: arrayListOf()
 
         if (selectedCountries.isEmpty()) {
-            showToast("Сначала выбери страну для блокировки")
+
+            showToast(
+                "Сначала выбери страну для блокировки"
+            )
+
             stopSelf(startId)
+
             return START_NOT_STICKY
         }
 
         running.set(true)
 
         workerThread = Thread {
+
             runVpn(selectedCountries)
+
         }.also {
+
             it.name = "MLBB-IP-Filter"
+
             it.start()
         }
 
         return START_NOT_STICKY
     }
 
-    private fun runVpn(selectedCountries: List<String>) {
+    private fun runVpn(
+        selectedCountries: List<String>
+    ) {
 
         var localInterface: ParcelFileDescriptor? = null
 
@@ -118,6 +148,7 @@ class RegionVpnService : VpnService() {
                 uniqueIpv4.isEmpty() &&
                 uniqueIpv6.isEmpty()
             ) {
+
                 throw IllegalStateException(
                     "Не удалось загрузить IP-диапазоны"
                 )
@@ -130,7 +161,9 @@ class RegionVpnService : VpnService() {
 
             val builder =
                 Builder()
-                    .setSession("MLBB IP Blocker")
+                    .setSession(
+                        "MLBB IP Blocker"
+                    )
                     .setMtu(1500)
                     .addAddress(
                         VPN_IPV4,
@@ -145,7 +178,10 @@ class RegionVpnService : VpnService() {
                     )
 
             // Блокировка IPv4 выбранных стран
-            for ((address, prefix) in uniqueIpv4) {
+            for (
+                (address, prefix)
+                in uniqueIpv4
+            ) {
 
                 if (!running.get()) {
                     return
@@ -158,7 +194,10 @@ class RegionVpnService : VpnService() {
             }
 
             // Блокировка IPv6 выбранных стран
-            for ((address, prefix) in uniqueIpv6) {
+            for (
+                (address, prefix)
+                in uniqueIpv6
+            ) {
 
                 if (!running.get()) {
                     return
@@ -356,7 +395,9 @@ class RegionVpnService : VpnService() {
                 .openConnection() as HttpURLConnection
 
         connection.connectTimeout = 15000
+
         connection.readTimeout = 20000
+
         connection.requestMethod = "GET"
 
         try {
@@ -431,7 +472,9 @@ class RegionVpnService : VpnService() {
         }
     }
 
-    private fun showToast(message: String) {
+    private fun showToast(
+        message: String
+    ) {
 
         Handler(
             Looper.getMainLooper()
