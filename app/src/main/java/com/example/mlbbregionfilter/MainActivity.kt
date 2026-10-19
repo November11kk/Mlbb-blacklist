@@ -18,6 +18,7 @@ import androidx.appcompat.app.AppCompatActivity
 class MainActivity : AppCompatActivity() {
 
     private lateinit var ukraineCheckBox: CheckBox
+
     private val vpnRequestCode = 1001
 
     private fun dp(value: Int): Int {
@@ -34,6 +35,7 @@ class MainActivity : AppCompatActivity() {
         val layout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.TOP
+
             setPadding(
                 dp(20),
                 dp(20),
@@ -46,7 +48,13 @@ class MainActivity : AppCompatActivity() {
             text = "MLBB Region Filter"
             textSize = 25f
             setTextColor(Color.WHITE)
-            setPadding(0, 0, 0, dp(10))
+
+            setPadding(
+                0,
+                0,
+                0,
+                dp(10)
+            )
         }
 
         layout.addView(title)
@@ -67,7 +75,13 @@ class MainActivity : AppCompatActivity() {
 
             textSize = 16f
             setTextColor(Color.LTGRAY)
-            setPadding(0, 0, 0, dp(18))
+
+            setPadding(
+                0,
+                0,
+                0,
+                dp(18)
+            )
         }
 
         layout.addView(description)
@@ -76,7 +90,13 @@ class MainActivity : AppCompatActivity() {
             text = "Страны для блокировки"
             textSize = 18f
             setTextColor(Color.WHITE)
-            setPadding(0, 0, 0, dp(8))
+
+            setPadding(
+                0,
+                0,
+                0,
+                dp(8)
+            )
         }
 
         layout.addView(countryTitle)
@@ -85,7 +105,9 @@ class MainActivity : AppCompatActivity() {
             text = "Украина — IPv4 + IPv6"
             textSize = 16f
             setTextColor(Color.WHITE)
+
             isChecked = true
+
             setPadding(
                 0,
                 dp(4),
@@ -97,11 +119,13 @@ class MainActivity : AppCompatActivity() {
         layout.addView(ukraineCheckBox)
 
         val startButton = Button(this).apply {
+
             text = "Заблокировать выбранные страны"
             textSize = 16f
             minHeight = dp(52)
 
             setOnClickListener {
+
                 val selected = arrayListOf<String>()
 
                 if (ukraineCheckBox.isChecked) {
@@ -109,6 +133,7 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 if (selected.isEmpty()) {
+
                     Toast.makeText(
                         this@MainActivity,
                         "Выбери хотя бы одну страну",
@@ -122,11 +147,14 @@ class MainActivity : AppCompatActivity() {
                     VpnService.prepare(this@MainActivity)
 
                 if (prepareIntent != null) {
+
                     startActivityForResult(
                         prepareIntent,
                         vpnRequestCode
                     )
+
                 } else {
+
                     startFilter(selected)
                 }
             }
@@ -143,17 +171,21 @@ class MainActivity : AppCompatActivity() {
         )
 
         val stopButton = Button(this).apply {
+
             text = "Остановить блокировку"
             textSize = 16f
             minHeight = dp(52)
 
             setOnClickListener {
-                stopService(
-                    Intent(
-                        this@MainActivity,
-                        RegionVpnService::class.java
-                    )
-                )
+
+                val stopIntent = Intent(
+                    this@MainActivity,
+                    RegionVpnService::class.java
+                ).apply {
+                    action = RegionVpnService.ACTION_STOP
+                }
+
+                startService(stopIntent)
 
                 Toast.makeText(
                     this@MainActivity,
@@ -207,8 +239,11 @@ class MainActivity : AppCompatActivity() {
             }
 
             if (selected.isNotEmpty()) {
+
                 startFilter(selected)
+
             } else {
+
                 Toast.makeText(
                     this,
                     "Выбери хотя бы одну страну",
@@ -229,6 +264,7 @@ class MainActivity : AppCompatActivity() {
     private fun startFilter(
         selected: ArrayList<String>
     ) {
+
         val intent = Intent(
             this,
             RegionVpnService::class.java
